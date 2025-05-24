@@ -1,0 +1,13 @@
+from delta_rest_client import DeltaRestClient, create_order_format, cancel_order_format, round_by_tick_size, OrderType, TimeInForce
+import requests
+import time
+
+delta_client = DeltaRestClient(
+    base_url='https://api.india.delta.exchange',
+    api_key='rA3Iv28eEI0imm8bhXKBCcTct9SDbE',
+    api_secret='kdaI1Ykgd3HL3mi5hN8mszUVFCLtC9aFyXyMlKQ9EmHKh8onyVrE3V54DhWD',
+    raise_for_status=False
+)
+starttime = time.time()
+
+print("Wallet: ", str(delta_client.get_assets()))
