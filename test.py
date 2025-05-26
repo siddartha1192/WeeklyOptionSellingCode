@@ -454,16 +454,64 @@ def check_exit_before_expiry(current_time, expiry_date):
 
 def store_trading_data(data, account_type):
     """Store trading data using pickle"""
-    pickle.dump(data, open(f'data-{dt.now(time_zone).date()}-{account_type}.pickle', 'wb'))
+    filename = f'data-{account_type}.pickle'
+    with open(filename, 'wb') as f:
+        pickle.dump(data, f)
 
 def load_trading_data(account_type):
     """Load trading data using pickle"""
+    filename = f'data-{account_type}.pickle'
     try:
-        return pickle.load(open(f'data-{dt.now(time_zone).date()}-{account_type}.pickle', 'rb'))
-    except:
+        with open(filename, 'rb') as f:
+            return pickle.load(f)
+    except FileNotFoundError:
+        logging.info(f"No existing trading data found for {filename}")
+        return None
+    except Exception as e:
+        logging.error(f"Error loading trading data: {e}")
         return None
 
+def get_current_option_price(fyers, symbol):
+    """Get current market price for an option symbol"""
+    try:
+        # Get current market data for the symbol
+        data = {"symbols": symbol}
+        response = fyers.quotes(data=data)
+        
+        if response['s'] == 'ok' and 'd' in response:
+            # Return the LTP (Last Traded Price)
+            return response['d'][0]['v']['lp']
+        else:
+            logging.warning(f"Could not get price for {symbol}: {response}")
+            return 0
+    except Exception as e:
+        logging.error(f"Error getting current price for {symbol}: {e}")
+        return 0
 
+def log_trade_pair(trading_state, leg1_data, leg2_data, spot_price, trade_type="Entry", reason="Strategy"):
+    """Log both legs of a strategy with proper timestamps"""
+    base_time = dt.now(time_zone)
+    
+    # Log first leg
+    trading_state['trades'].loc[base_time] = [
+        leg1_data['symbol'], 
+        leg1_data['price'], 
+        leg1_data['action'], 
+        f"{trade_type} - {reason} - {leg1_data['leg_type']}", 
+        spot_price
+    ]
+    
+    # Log second leg with microsecond offset to avoid overwriting
+    trading_state['trades'].loc[base_time.add(microseconds=1)] = [
+        leg2_data['symbol'], 
+        leg2_data['price'], 
+        leg2_data['action'], 
+        f"{trade_type} - {reason} - {leg2_data['leg_type']}", 
+        spot_price
+    ]
+    
+    logging.info(f"{trade_type}: {leg1_data['leg_type']} {leg1_data['symbol']} @ {leg1_data['price']}, "
+                f"{leg2_data['leg_type']} {leg2_data['symbol']} @ {leg2_data['price']}")
 
 def place_order(fyers, symbol, action, quantity, limit_price=0):
     """Place an order in the market
@@ -496,7 +544,7 @@ def place_order(fyers, symbol, action, quantity, limit_price=0):
             "qty": quantity,
             "type": order_type,
             "side": action,
-            "productType": "INTRADAY",
+            "productType": "MARGIN",
             "limitPrice": limit_price,
             "stopPrice": 0,
             "validity": "DAY",
@@ -512,31 +560,202 @@ def place_order(fyers, symbol, action, quantity, limit_price=0):
         logging.error(f"Error placing order: {e}")
         return {"s": "error", "message": str(e)}
 
-def exit_position(fyers, symbol):
-    """Exit a position completely"""
-    # Check if we're in paper trading mode
+def enhanced_exit_position(fyers, symbol, account_type):
+    """Exit position and return the exit price"""
     if account_type == 'PAPER':
-        # Log the exit details but don't actually exit the position
-        logging.info(f"PAPER TRADE: Exiting position for {symbol}")
-        
-        # Simulate a successful exit response
-        return {"s": "ok", "message": "Paper trading position exit simulated"}
+        # For paper trading, get current market price
+        exit_price = get_current_option_price(fyers, symbol)
+        logging.info(f"PAPER TRADE: Exiting position for {symbol} @ {exit_price}")
+        return {"s": "ok", "message": "Paper trading position exit simulated", "exit_price": exit_price}
     
-    # If not in paper trading mode, actually exit the position
+    # For live trading, first get current price, then exit
+    exit_price = get_current_option_price(fyers, symbol)
+    
     try:
-        data = {"id": symbol + "-INTRADAY"}
+        data = {"id": symbol + "-MARGIN"}
         response = fyers.exit_positions(data=data)
-        logging.info(f"LIVE TRADE: Exited position: {symbol}. Response: {response}")
+        response["exit_price"] = exit_price  # Add exit price to response
+        logging.info(f"LIVE TRADE: Exited position: {symbol} @ {exit_price}. Response: {response}")
         return response
     except Exception as e:
         logging.error(f"Error exiting position: {e}")
-        return {"s": "error", "message": str(e)}
+        return {"s": "error", "message": str(e), "exit_price": 0}
+
+def execute_long_entry(fyers, trading_state, option_chain, spot_price, selected_expiry, quantity, account_type):
+    """Execute long position entry with proper logging"""
+    try:
+        # Find options
+        sell_put = get_option_by_delta(option_chain, spot_price, -0.4, 'PE', selected_expiry)
+        buy_put = get_option_by_delta(option_chain, spot_price, -0.25, 'PE', selected_expiry)
+        
+        logging.info(f"Selected put to sell: {sell_put['symbol']} with delta ~{sell_put.get('calculated_delta', '?')}")
+        logging.info(f"Selected put to buy: {buy_put['symbol']} with delta ~{buy_put.get('calculated_delta', '?')}")
+        
+        # Place orders
+        buy_order_result = place_order(fyers, buy_put['symbol'], 1, quantity)
+        sell_order_result = place_order(fyers, sell_put['symbol'], -1, quantity)
+        
+        if sell_order_result.get('s') == 'ok' and buy_order_result.get('s') == 'ok':
+            # Update trading state
+            trading_state['position'] = 'long'
+            trading_state['entry_time'] = dt.now(time_zone)
+            trading_state['entry_price'] = spot_price
+            trading_state['sell_put_symbol'] = sell_put['symbol']
+            trading_state['buy_put_symbol'] = buy_put['symbol']
+            trading_state['expiry'] = selected_expiry
+            
+            # Log both trades properly
+            leg1_data = {
+                'symbol': sell_put['symbol'],
+                'price': sell_put['ltp'],
+                'action': -1,
+                'leg_type': 'Sell Put'
+            }
+            leg2_data = {
+                'symbol': buy_put['symbol'],
+                'price': buy_put['ltp'],
+                'action': 1,
+                'leg_type': 'Buy Put'
+            }
+            
+            log_trade_pair(trading_state, leg1_data, leg2_data, spot_price, "Entry", "Long Put Spread")
+            return True
+        else:
+            logging.error(f"Failed to place long orders: Sell={sell_order_result}, Buy={buy_order_result}")
+            return False
+            
+    except Exception as e:
+        logging.error(f"Error in long entry: {e}")
+        return False
+
+def execute_short_entry(fyers, trading_state, option_chain, spot_price, selected_expiry, quantity, account_type):
+    """Execute short position entry with proper logging"""
+    try:
+        # Find options
+        sell_call = get_option_by_delta(option_chain, spot_price, 0.4, 'CE', selected_expiry)
+        buy_call = get_option_by_delta(option_chain, spot_price, 0.25, 'CE', selected_expiry)
+        
+        logging.info(f"Selected call to sell: {sell_call['symbol']} with delta ~{sell_call.get('calculated_delta', '?')}")
+        logging.info(f"Selected call to buy: {buy_call['symbol']} with delta ~{buy_call.get('calculated_delta', '?')}")
+        
+        # Place orders
+        buy_order_result = place_order(fyers, buy_call['symbol'], 1, quantity)
+        sell_order_result = place_order(fyers, sell_call['symbol'], -1, quantity)
+        
+        if sell_order_result.get('s') == 'ok' and buy_order_result.get('s') == 'ok':
+            # Update trading state
+            trading_state['position'] = 'short'
+            trading_state['entry_time'] = dt.now(time_zone)
+            trading_state['entry_price'] = spot_price
+            trading_state['sell_call_symbol'] = sell_call['symbol']
+            trading_state['buy_call_symbol'] = buy_call['symbol']
+            trading_state['expiry'] = selected_expiry
+            
+            # Log both trades properly
+            leg1_data = {
+                'symbol': sell_call['symbol'],
+                'price': sell_call['ltp'],
+                'action': -1,
+                'leg_type': 'Sell Call'
+            }
+            leg2_data = {
+                'symbol': buy_call['symbol'],
+                'price': buy_call['ltp'],
+                'action': 1,
+                'leg_type': 'Buy Call'
+            }
+            
+            log_trade_pair(trading_state, leg1_data, leg2_data, spot_price, "Entry", "Short Call Spread")
+            return True
+        else:
+            logging.error(f"Failed to place short orders: Sell={sell_order_result}, Buy={buy_order_result}")
+            return False
+            
+    except Exception as e:
+        logging.error(f"Error in short entry: {e}")
+        return False
+
+def execute_position_exit(fyers, trading_state, spot_price, reason, account_type):
+    """Execute position exit with proper price logging"""
+    try:
+        if trading_state['position'] == 'long':
+            # Exit long position - get actual exit prices
+            sell_put_exit = enhanced_exit_position(fyers, trading_state['sell_put_symbol'], account_type)
+            buy_put_exit = enhanced_exit_position(fyers, trading_state['buy_put_symbol'], account_type)
+            
+            if sell_put_exit.get('s') == 'ok' and buy_put_exit.get('s') == 'ok':
+                # Log both exits with actual prices
+                leg1_data = {
+                    'symbol': trading_state['sell_put_symbol'],
+                    'price': sell_put_exit.get('exit_price', 0),
+                    'action': 1,  # Buying back the sold put
+                    'leg_type': 'Buy Back Put'
+                }
+                leg2_data = {
+                    'symbol': trading_state['buy_put_symbol'],
+                    'price': buy_put_exit.get('exit_price', 0),
+                    'action': -1,  # Selling the bought put
+                    'leg_type': 'Sell Put'
+                }
+                
+                log_trade_pair(trading_state, leg1_data, leg2_data, spot_price, "Exit", reason)
+                
+                # Reset position
+                trading_state['position'] = None
+                trading_state['entry_time'] = None
+                trading_state['entry_price'] = 0
+                trading_state['sell_put_symbol'] = ''
+                trading_state['buy_put_symbol'] = ''
+                trading_state['expiry'] = None
+                
+                return True
+            else:
+                logging.error(f"Failed to exit long position: SellPut={sell_put_exit}, BuyPut={buy_put_exit}")
+                return False
+                
+        elif trading_state['position'] == 'short':
+            # Exit short position - get actual exit prices
+            sell_call_exit = enhanced_exit_position(fyers, trading_state['sell_call_symbol'], account_type)
+            buy_call_exit = enhanced_exit_position(fyers, trading_state['buy_call_symbol'], account_type)
+            
+            if sell_call_exit.get('s') == 'ok' and buy_call_exit.get('s') == 'ok':
+                # Log both exits with actual prices
+                leg1_data = {
+                    'symbol': trading_state['sell_call_symbol'],
+                    'price': sell_call_exit.get('exit_price', 0),
+                    'action': 1,  # Buying back the sold call
+                    'leg_type': 'Buy Back Call'
+                }
+                leg2_data = {
+                    'symbol': trading_state['buy_call_symbol'],
+                    'price': buy_call_exit.get('exit_price', 0),
+                    'action': -1,  # Selling the bought call
+                    'leg_type': 'Sell Call'
+                }
+                
+                log_trade_pair(trading_state, leg1_data, leg2_data, spot_price, "Exit", reason)
+                
+                # Reset position
+                trading_state['position'] = None
+                trading_state['entry_time'] = None
+                trading_state['entry_price'] = 0
+                trading_state['sell_call_symbol'] = ''
+                trading_state['buy_call_symbol'] = ''
+                trading_state['expiry'] = None
+                
+                return True
+            else:
+                logging.error(f"Failed to exit short position: SellCall={sell_call_exit}, BuyCall={buy_call_exit}")
+                return False
+                
+    except Exception as e:
+        logging.error(f"Error during position exit: {e}")
+        return False
 
 def initialize_trading_state():
     """Initialize the trading state dictionary"""
-    column_names = ['time', 'symbol', 'price', 'action', 'reason', 'spot_price']
+    column_names = ['symbol', 'price', 'action', 'reason', 'spot_price']
     trades_df = pd.DataFrame(columns=column_names)
-    trades_df.set_index('time', inplace=True)
     
     state = {
         'position': None,  # 'long' or 'short' or None
@@ -581,19 +800,18 @@ def main():
         
         # Exit if we're past end time
         if current_time > end_time + dt.duration(minutes=2):
-            logging.info("Trading session ended. Exiting program.")
+            logging.info("Trading session ended. Positions maintained for next day.")
             break
         
         # Only trade during market hours
         if start_time <= current_time <= end_time:
             try:
                 # Get historical data
-                hist_data = get_historical_data(fyers, ticker, interval='60', days=18)
+                hist_data = get_historical_data(fyers, ticker, interval='5', days=18)
                 hist_data = hist_data.drop_duplicates()
                 
                 if not hist_data.empty:
                     # Calculate indicators
-                    
                     hist_data = calculate_supertrend(hist_data, period=supertrend_period, 
                                                    multiplier=supertrend_multiplier)
                     hist_data = calculate_ema(hist_data, period=ema_period)
@@ -650,145 +868,21 @@ def main():
                         # Entry for buy signal
                         if buy_signal:
                             logging.info("Buy signal detected")
-                            try:
-                                # Find put option with delta close to -0.4 to sell
-                                sell_put = get_option_by_delta(option_chain, spot_price, -0.4, 'PE', selected_expiry)
-                                logging.info(f"Selected put to sell: {sell_put['symbol']} with delta ~{sell_put.get('calculated_delta', '?')}")
-                                
-                                # Find put option with delta close to -0.25 to buy
-                                buy_put = get_option_by_delta(option_chain, spot_price, -0.25, 'PE', selected_expiry)
-                                logging.info(f"Selected put to buy: {buy_put['symbol']} with delta ~{buy_put.get('calculated_delta', '?')}")
-                                
-                                # Place orders
-                                buy_order_result = place_order(fyers, buy_put['symbol'], 1, quantity)     # Buy put
-                                sell_order_result = place_order(fyers, sell_put['symbol'], -1, quantity)  # Sell put
-
-                                
-                                if sell_order_result.get('s') == 'ok' and buy_order_result.get('s') == 'ok':
-                                    # Update trading state
-                                    trading_state['position'] = 'long'
-                                    trading_state['entry_time'] = current_time
-                                    trading_state['entry_price'] = spot_price
-                                    trading_state['sell_put_symbol'] = sell_put['symbol']
-                                    trading_state['buy_put_symbol'] = buy_put['symbol']  # Changed from buy_call_symbol
-                                    trading_state['expiry'] = selected_expiry
-                                    
-                                    # Log trade
-                                    trading_state['trades'].loc[current_time] = [
-                                        sell_put['symbol'], sell_put['ltp'], -1, 'Entry - Sell Put', spot_price
-                                    ]
-                                    trading_state['trades'].loc[current_time] = [
-                                        buy_put['symbol'], buy_put['ltp'], 1, 'Entry - Buy Put', spot_price
-                                    ]
-                                    
-                                    logging.info(f"Entered LONG position: Sold Put {sell_put['symbol']} @ {sell_put['ltp']}, "
-                                                f"Bought Put {buy_put['symbol']} @ {buy_put['ltp']}")
-                                else:
-                                    logging.error(f"Failed to place orders: Sell Put result: {sell_order_result}, Buy Put result: {buy_order_result}")
-                            except Exception as e:
-                                logging.error(f"Error placing buy orders: {e}")
+                            execute_long_entry(fyers, trading_state, option_chain, spot_price, selected_expiry, quantity, account_type)
                         
                         # Entry for sell signal
                         elif sell_signal:
                             logging.info("Sell signal detected")
-                            try:
-                                # Find call option with delta close to 0.4 to sell
-                                sell_call = get_option_by_delta(option_chain, spot_price, 0.4, 'CE', selected_expiry)
-                                logging.info(f"Selected call to sell: {sell_call['symbol']} with delta ~{sell_call.get('calculated_delta', '?')}")
-                                
-                                # Find call option with delta close to 0.25 to buy
-                                buy_call = get_option_by_delta(option_chain, spot_price, 0.25, 'CE', selected_expiry)
-                                logging.info(f"Selected call to buy: {buy_call['symbol']} with delta ~{buy_call.get('calculated_delta', '?')}")
-                                
-                                # Place orders
-                                buy_order_result = place_order(fyers, buy_call['symbol'], 1, quantity)     # Buy call
-                                sell_order_result = place_order(fyers, sell_call['symbol'], -1, quantity)  # Sell call
-                                
-                                if sell_order_result.get('s') == 'ok' and buy_order_result.get('s') == 'ok':
-                                    # Update trading state
-                                    trading_state['position'] = 'short'
-                                    trading_state['entry_time'] = current_time
-                                    trading_state['entry_price'] = spot_price
-                                    trading_state['sell_call_symbol'] = sell_call['symbol']
-                                    trading_state['buy_call_symbol'] = buy_call['symbol']  # Changed from buy_put_symbol
-                                    trading_state['expiry'] = selected_expiry
-                                    
-                                    # Log trade
-                                    trading_state['trades'].loc[current_time] = [
-                                        sell_call['symbol'], sell_call['ltp'], -1, 'Entry - Sell Call', spot_price
-                                    ]
-                                    trading_state['trades'].loc[current_time] = [
-                                        buy_call['symbol'], buy_call['ltp'], 1, 'Entry - Buy Call', spot_price
-                                    ]
-                                    
-                                    logging.info(f"Entered SHORT position: Sold Call {sell_call['symbol']} @ {sell_call['ltp']}, "
-                                               f"Bought Call {buy_call['symbol']} @ {buy_call['ltp']}")
-                                else:
-                                    logging.error(f"Failed to place orders: Sell Call result: {sell_order_result}, Buy Call result: {buy_order_result}")
-                            except Exception as e:
-                                logging.error(f"Error placing sell orders: {e}")
-                                
-                    # Exit positions - need to update the exit logic to match the new positions
+                            execute_short_entry(fyers, trading_state, option_chain, spot_price, selected_expiry, quantity, account_type)
+                                                
+                    # Exit positions
                     elif exit_buy_signal or exit_sell_signal or exit_for_expiry:
                         reason = "Supertrend Signal Change"
                         if exit_for_expiry:
                             reason = "Exit Before Expiry"
                         
                         logging.info(f"Exit signal detected: {reason}")
-                        
-                        try:
-                            if trading_state['position'] == 'long':
-                                # Exit long position - both are puts now
-                                exit_put_result = exit_position(fyers, trading_state['sell_put_symbol'])
-                                exit_put_buy_result = exit_position(fyers, trading_state['buy_put_symbol'])
-                                
-                                if exit_put_result.get('s') == 'ok' and exit_put_buy_result.get('s') == 'ok':
-                                    # Log trade
-                                    trading_state['trades'].loc[current_time] = [
-                                        trading_state['sell_put_symbol'], 0, 1, f"Exit - {reason}", spot_price
-                                    ]
-                                    trading_state['trades'].loc[current_time] = [
-                                        trading_state['buy_put_symbol'], 0, -1, f"Exit - {reason}", spot_price
-                                    ]
-                                    
-                                    logging.info(f"Exited LONG position: {reason}")
-                                    
-                                    # Reset position
-                                    trading_state['position'] = None
-                                    trading_state['entry_time'] = None
-                                    trading_state['entry_price'] = 0
-                                    trading_state['sell_put_symbol'] = ''
-                                    trading_state['buy_put_symbol'] = ''
-                                    trading_state['expiry'] = None
-                                else:
-                                    logging.error(f"Failed to exit long position: Sell Put result: {exit_put_result}, Buy Put result: {exit_put_buy_result}")
-                            else:  # short position
-                                # Exit short position - both are calls now
-                                exit_call_result = exit_position(fyers, trading_state['sell_call_symbol'])
-                                exit_call_buy_result = exit_position(fyers, trading_state['buy_call_symbol'])
-                                
-                                if exit_call_result.get('s') == 'ok' and exit_call_buy_result.get('s') == 'ok':
-                                    # Log trade
-                                    trading_state['trades'].loc[current_time] = [
-                                        trading_state['sell_call_symbol'], 0, 1, f"Exit - {reason}", spot_price
-                                    ]
-                                    trading_state['trades'].loc[current_time] = [
-                                        trading_state['buy_call_symbol'], 0, -1, f"Exit - {reason}", spot_price
-                                    ]
-                                    
-                                    logging.info(f"Exited SHORT position: {reason}")
-                                    
-                                    # Reset position
-                                    trading_state['position'] = None
-                                    trading_state['entry_time'] = None
-                                    trading_state['entry_price'] = 0
-                                    trading_state['sell_call_symbol'] = ''
-                                    trading_state['buy_call_symbol'] = ''
-                                    trading_state['expiry'] = None
-                                else:
-                                    logging.error(f"Failed to exit short position: Sell Call result: {exit_call_result}, Buy Call result: {exit_call_buy_result}")
-                        except Exception as e:
-                            logging.error(f"Error during position exit: {e}")
+                        execute_position_exit(fyers, trading_state, spot_price, reason, account_type)
                     
                     # Save trading state
                     store_trading_data(trading_state, account_type)
