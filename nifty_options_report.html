@@ -1,0 +1,630 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NIFTY Options Trading P&L Report</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.15);
+            overflow: hidden;
+        }
+        
+        .header {
+            background: linear-gradient(135deg, #2c3e50 0%, #3498db 100%);
+            color: white;
+            padding: 40px;
+            text-align: center;
+        }
+        
+        .header h1 {
+            font-size: 3rem;
+            font-weight: 300;
+            margin-bottom: 10px;
+        }
+        
+        .header .subtitle {
+            font-size: 1.2rem;
+            opacity: 0.9;
+            font-weight: 300;
+        }
+        
+        .summary {
+            padding: 40px;
+            background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+            border-bottom: 3px solid #3498db;
+        }
+        
+        .summary h2 {
+            text-align: center;
+            color: #2c3e50;
+            margin-bottom: 30px;
+            font-size: 2rem;
+            font-weight: 300;
+        }
+        
+        .summary-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 25px;
+        }
+        
+        .summary-card {
+            background: white;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 8px 25px rgba(0,0,0,0.1);
+            text-align: center;
+            transition: transform 0.3s ease;
+        }
+        
+        .summary-card:hover {
+            transform: translateY(-5px);
+        }
+        
+        .summary-card h3 {
+            color: #7f8c8d;
+            font-size: 0.9rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 15px;
+            font-weight: 600;
+        }
+        
+        .summary-card .value {
+            font-size: 2.5rem;
+            font-weight: bold;
+            color: #27ae60;
+        }
+        
+        .summary-card .value.negative {
+            color: #e74c3c;
+        }
+        
+        .summary-card .value.neutral {
+            color: #3498db;
+        }
+        
+        .content {
+            padding: 40px;
+        }
+        
+        .section-title {
+            color: #2c3e50;
+            font-size: 2rem;
+            font-weight: 300;
+            margin-bottom: 30px;
+            text-align: center;
+        }
+        
+        .table-container {
+            overflow-x: auto;
+            border-radius: 12px;
+            box-shadow: 0 8px 25px rgba(0,0,0,0.1);
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            background: white;
+        }
+        
+        th {
+            background: linear-gradient(135deg, #34495e 0%, #2c3e50 100%);
+            color: white;
+            padding: 20px 15px;
+            text-align: left;
+            font-weight: 600;
+            text-transform: uppercase;
+            font-size: 0.85rem;
+            letter-spacing: 0.5px;
+        }
+        
+        td {
+            padding: 20px 15px;
+            border-bottom: 1px solid #e9ecef;
+            vertical-align: top;
+        }
+        
+        tr:nth-child(even) {
+            background-color: #f8f9fa;
+        }
+        
+        tr:hover {
+            background-color: #e3f2fd;
+        }
+        
+        .strategy-name {
+            font-weight: 700;
+            color: #2c3e50;
+            font-size: 1.1rem;
+        }
+        
+        .strategy-number {
+            background: #3498db;
+            color: white;
+            padding: 5px 10px;
+            border-radius: 20px;
+            font-size: 0.8rem;
+            margin-right: 10px;
+        }
+        
+        .pnl-positive {
+            color: #27ae60;
+            font-weight: bold;
+            font-size: 1.1rem;
+        }
+        
+        .pnl-negative {
+            color: #e74c3c;
+            font-weight: bold;
+            font-size: 1.1rem;
+        }
+        
+        .pnl-open {
+            color: #f39c12;
+            font-weight: bold;
+            font-size: 1.1rem;
+        }
+        
+        .spot-movement {
+            font-size: 0.95rem;
+            line-height: 1.4;
+        }
+        
+        .spot-change {
+            font-size: 0.85rem;
+            color: #7f8c8d;
+            font-style: italic;
+        }
+        
+        .trade-details {
+            font-size: 0.9rem;
+            line-height: 1.5;
+        }
+        
+        .trade-leg {
+            margin-bottom: 12px;
+            padding: 12px;
+            border-radius: 8px;
+            border-left: 4px solid #3498db;
+        }
+        
+        .sell-leg {
+            background: #ffebee;
+            border-left-color: #e74c3c;
+        }
+        
+        .buy-leg {
+            background: #e8f5e8;
+            border-left-color: #27ae60;
+        }
+        
+        .open-leg {
+            background: #fff3e0;
+            border-left-color: #f39c12;
+        }
+        
+        .leg-title {
+            font-weight: 600;
+            margin-bottom: 5px;
+        }
+        
+        .leg-details {
+            font-size: 0.85rem;
+            color: #666;
+        }
+        
+        .total-row {
+            background: linear-gradient(135deg, #ecf0f1 0%, #bdc3c7 100%);
+            font-weight: bold;
+            font-size: 1.2rem;
+        }
+        
+        .total-row td {
+            border-top: 3px solid #3498db;
+            padding: 25px 15px;
+        }
+        
+        .credit-debit {
+            font-size: 0.9rem;
+            margin-top: 5px;
+        }
+        
+        .credit {
+            color: #27ae60;
+        }
+        
+        .debit {
+            color: #e74c3c;
+        }
+        
+        .date-badge {
+            background: #ecf0f1;
+            padding: 5px 10px;
+            border-radius: 15px;
+            font-size: 0.85rem;
+            color: #2c3e50;
+            white-space: nowrap;
+        }
+        
+        .open-badge {
+            background: #f39c12;
+            color: white;
+            padding: 3px 8px;
+            border-radius: 10px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            margin-left: 8px;
+        }
+        
+        @media (max-width: 768px) {
+            .container {
+                margin: 10px;
+                border-radius: 12px;
+            }
+            
+            .header {
+                padding: 25px;
+            }
+            
+            .header h1 {
+                font-size: 2rem;
+            }
+            
+            .summary, .content {
+                padding: 25px;
+            }
+            
+            .summary-grid {
+                grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+                gap: 15px;
+            }
+            
+            .summary-card {
+                padding: 20px;
+            }
+            
+            .summary-card .value {
+                font-size: 2rem;
+            }
+            
+            table {
+                font-size: 0.85rem;
+            }
+            
+            th, td {
+                padding: 12px 8px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>NIFTY Options Trading Report</h1>
+            <div class="subtitle">Supertrend Strategy Analysis | Generated on July 11, 2025</div>
+        </div>
+        
+        <div class="summary">
+            <h2>Performance Summary</h2>
+            <div class="summary-grid">
+                <div class="summary-card">
+                    <h3>Total P&L (Closed)</h3>
+                    <div class="value">₹12,570.00</div>
+                </div>
+                <div class="summary-card">
+                    <h3>Total Strategies</h3>
+                    <div class="value neutral">7</div>
+                </div>
+                <div class="summary-card">
+                    <h3>Closed Positions</h3>
+                    <div class="value neutral">6</div>
+                </div>
+                <div class="summary-card">
+                    <h3>Winning Trades</h3>
+                    <div class="value">4</div>
+                </div>
+                <div class="summary-card">
+                    <h3>Win Rate</h3>
+                    <div class="value">66.7%</div>
+                </div>
+                <div class="summary-card">
+                    <h3>Open Positions</h3>
+                    <div class="value neutral">1</div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="content">
+            <h2 class="section-title">Detailed Trade Analysis</h2>
+            
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Strategy</th>
+                            <th>Period</th>
+                            <th>Spot Movement</th>
+                            <th>Trade Details</th>
+                            <th>Credit/Debit</th>
+                            <th>P&L (₹)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td class="strategy-name">
+                                <span class="strategy-number">#1</span>Short Call Spread
+                                
+                            </td>
+                            <td>
+                                <div class="date-badge">2025-06-02</div>
+                                <div style="text-align: center; margin: 5px 0;">to</div>
+                                <div class="date-badge">2025-06-05</div>
+                            </td>
+                            <td class="spot-movement">
+                                24,591 → 24876.45<br>
+                                <span class="spot-change">(+285 points)</span>
+                            </td>
+                            <td class="trade-details">
+                                <div class="trade-leg sell-leg">
+                                    <div class="leg-title">SELL 24850 CE</div>
+                                    <div class="leg-details">Entry: ₹212.0 → Exit: ₹241.4</div>
+                                </div>
+                                <div class="trade-leg buy-leg">
+                                    <div class="leg-title">BUY 25100 CE</div>
+                                    <div class="leg-details">Entry: ₹128.0 → Exit: ₹125.1</div>
+                                </div>
+                            </td>
+                            <td>
+                                <div class="credit-debit">
+                                    <div class="credit">Credit: ₹6,300</div>
+                                    <div class="debit" style="">
+                                        Debit: ₹8722
+                                    </div>
+                                </div>
+                            </td>
+                            <td class="pnl-negative">₹-2,422</td>
+                        </tr>
+                        <tr>
+                            <td class="strategy-name">
+                                <span class="strategy-number">#2</span>Long Put Spread
+                                
+                            </td>
+                            <td>
+                                <div class="date-badge">2025-06-05</div>
+                                <div style="text-align: center; margin: 5px 0;">to</div>
+                                <div class="date-badge">2025-06-12</div>
+                            </td>
+                            <td class="spot-movement">
+                                24,780 → 24897.5<br>
+                                <span class="spot-change">(+118 points)</span>
+                            </td>
+                            <td class="trade-details">
+                                <div class="trade-leg sell-leg">
+                                    <div class="leg-title">SELL 24650 PE</div>
+                                    <div class="leg-details">Entry: ₹116.25 → Exit: ₹1.4</div>
+                                </div>
+                                <div class="trade-leg buy-leg">
+                                    <div class="leg-title">BUY 24350 PE</div>
+                                    <div class="leg-details">Entry: ₹46.05 → Exit: ₹0.35</div>
+                                </div>
+                            </td>
+                            <td>
+                                <div class="credit-debit">
+                                    <div class="credit">Credit: ₹5,265</div>
+                                    <div class="debit" style="">
+                                        Debit: ₹78
+                                    </div>
+                                </div>
+                            </td>
+                            <td class="pnl-positive">+ ₹5,186</td>
+                        </tr>
+                        <tr>
+                            <td class="strategy-name">
+                                <span class="strategy-number">#3</span>Short Call Spread
+                                
+                            </td>
+                            <td>
+                                <div class="date-badge">2025-06-12</div>
+                                <div style="text-align: center; margin: 5px 0;">to</div>
+                                <div class="date-badge">2025-06-16</div>
+                            </td>
+                            <td class="spot-movement">
+                                24,906 → 24936.25<br>
+                                <span class="spot-change">(+31 points)</span>
+                            </td>
+                            <td class="trade-details">
+                                <div class="trade-leg sell-leg">
+                                    <div class="leg-title">SELL 25150 CE</div>
+                                    <div class="leg-details">Entry: ₹85.75 → Exit: ₹59.05</div>
+                                </div>
+                                <div class="trade-leg buy-leg">
+                                    <div class="leg-title">BUY 25400 CE</div>
+                                    <div class="leg-details">Entry: ₹31.55 → Exit: ₹16.25</div>
+                                </div>
+                            </td>
+                            <td>
+                                <div class="credit-debit">
+                                    <div class="credit">Credit: ₹4,065</div>
+                                    <div class="debit" style="">
+                                        Debit: ₹3210
+                                    </div>
+                                </div>
+                            </td>
+                            <td class="pnl-positive">+ ₹855</td>
+                        </tr>
+                        <tr>
+                            <td class="strategy-name">
+                                <span class="strategy-number">#4</span>Long Put Spread
+                                
+                            </td>
+                            <td>
+                                <div class="date-badge">2025-06-16</div>
+                                <div style="text-align: center; margin: 5px 0;">to</div>
+                                <div class="date-badge">2025-06-27</div>
+                            </td>
+                            <td class="spot-movement">
+                                24,961 → 25607.75<br>
+                                <span class="spot-change">(+647 points)</span>
+                            </td>
+                            <td class="trade-details">
+                                <div class="trade-leg sell-leg">
+                                    <div class="leg-title">SELL 24800 PE</div>
+                                    <div class="leg-details">Entry: ₹157.05 → Exit: ₹0.05</div>
+                                </div>
+                                <div class="trade-leg buy-leg">
+                                    <div class="leg-title">BUY 24450 PE</div>
+                                    <div class="leg-details">Entry: ₹77.3 → Exit: ₹0.05</div>
+                                </div>
+                            </td>
+                            <td>
+                                <div class="credit-debit">
+                                    <div class="credit">Credit: ₹5,981</div>
+                                    <div class="debit" style="">
+                                        Debit: ₹0
+                                    </div>
+                                </div>
+                            </td>
+                            <td class="pnl-positive">+ ₹5,981</td>
+                        </tr>
+                        <tr>
+                            <td class="strategy-name">
+                                <span class="strategy-number">#5</span>Long Put Spread
+                                
+                            </td>
+                            <td>
+                                <div class="date-badge">2025-06-27</div>
+                                <div style="text-align: center; margin: 5px 0;">to</div>
+                                <div class="date-badge">2025-07-02</div>
+                            </td>
+                            <td class="spot-movement">
+                                25,576 → 25417.7<br>
+                                <span class="spot-change">(-158 points)</span>
+                            </td>
+                            <td class="trade-details">
+                                <div class="trade-leg sell-leg">
+                                    <div class="leg-title">SELL 25450 PE</div>
+                                    <div class="leg-details">Entry: ₹95.4 → Exit: ₹81.2</div>
+                                </div>
+                                <div class="trade-leg buy-leg">
+                                    <div class="leg-title">BUY 25150 PE</div>
+                                    <div class="leg-details">Entry: ₹35.65 → Exit: ₹8.75</div>
+                                </div>
+                            </td>
+                            <td>
+                                <div class="credit-debit">
+                                    <div class="credit">Credit: ₹4,481</div>
+                                    <div class="debit" style="">
+                                        Debit: ₹5433
+                                    </div>
+                                </div>
+                            </td>
+                            <td class="pnl-negative">₹-952</td>
+                        </tr>
+                        <tr>
+                            <td class="strategy-name">
+                                <span class="strategy-number">#6</span>Short Call Spread
+                                
+                            </td>
+                            <td>
+                                <div class="date-badge">2025-07-02</div>
+                                <div style="text-align: center; margin: 5px 0;">to</div>
+                                <div class="date-badge">2025-07-11</div>
+                            </td>
+                            <td class="spot-movement">
+                                25,455 → 25268.35<br>
+                                <span class="spot-change">(-187 points)</span>
+                            </td>
+                            <td class="trade-details">
+                                <div class="trade-leg sell-leg">
+                                    <div class="leg-title">SELL 25700 CE</div>
+                                    <div class="leg-details">Entry: ₹83.8 → Exit: ₹0.05</div>
+                                </div>
+                                <div class="trade-leg buy-leg">
+                                    <div class="leg-title">BUY 25950 CE</div>
+                                    <div class="leg-details">Entry: ₹31.45 → Exit: ₹0.0</div>
+                                </div>
+                            </td>
+                            <td>
+                                <div class="credit-debit">
+                                    <div class="credit">Credit: ₹3,926</div>
+                                    <div class="debit" style="">
+                                        Debit: ₹3
+                                    </div>
+                                </div>
+                            </td>
+                            <td class="pnl-positive">+ ₹3,922</td>
+                        </tr>
+                        <tr>
+                            <td class="strategy-name">
+                                <span class="strategy-number">#7</span>Short Call Spread
+                                 <span class="open-badge">OPEN</span>
+                            </td>
+                            <td>
+                                <div class="date-badge">2025-07-11</div>
+                                <div style="text-align: center; margin: 5px 0;">to</div>
+                                <div class="date-badge">OPEN</div>
+                            </td>
+                            <td class="spot-movement">
+                                25,253 → Current<br>
+                                <span class="spot-change">(Active)</span>
+                            </td>
+                            <td class="trade-details">
+                                <div class="trade-leg open-leg">
+                                    <div class="leg-title">SELL 25450 CE</div>
+                                    <div class="leg-details">Entry: ₹56.9 → Exit: ₹OPEN</div>
+                                </div>
+                                <div class="trade-leg open-leg">
+                                    <div class="leg-title">BUY 25750 CE</div>
+                                    <div class="leg-details">Entry: ₹12.8 → Exit: ₹OPEN</div>
+                                </div>
+                            </td>
+                            <td>
+                                <div class="credit-debit">
+                                    <div class="credit">Credit: ₹3,308</div>
+                                    <div class="" style="color: #f39c12;">
+                                        Status: OPEN
+                                    </div>
+                                </div>
+                            </td>
+                            <td class="pnl-open">OPEN</td>
+                        </tr>
+                        <tr class="total-row">
+                            <td colspan="5" style="text-align: right;"><strong>TOTAL P&L (Closed Positions)</strong></td>
+                            <td class="pnl-positive"><strong>+ ₹12,570</strong></td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+            
+            <div style="margin-top: 40px; padding: 30px; background: #f8f9fa; border-radius: 12px; border-left: 5px solid #3498db;">
+                <h3 style="color: #2c3e50; margin-bottom: 20px;">Key Insights</h3>
+                <ul style="line-height: 1.8; color: #2c3e50;"><li><strong>Best Performance:</strong> Strategy #4 (Long Put Spread) generated ₹5,981 profit</li>
+                    <li><strong>Strategy Mix:</strong> 4 Short Call Spreads, 3 Long Put Spreads showing diversified approach</li>
+                    <li><strong>Risk Management:</strong> Consistent use of Supertrend signals for entries and exits</li>
+                    <li><strong>Lot Size:</strong> All calculations based on NIFTY lot size of 75 contracts</li><li><strong>Open Positions:</strong> 1 active position(s) with ₹3,308 total credit collected</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

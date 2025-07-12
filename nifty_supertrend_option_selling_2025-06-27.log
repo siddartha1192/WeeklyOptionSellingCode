@@ -1,0 +1,22 @@
+2025-06-27 03:37:38,843 - Starting Nifty Option Selling Strategy
+2025-06-27 03:39:27,816 - Waiting 6.5 minutes until trading starts at 2025-06-27 09:16:00+05:30
+2025-06-27 03:39:52,869 - Starting Nifty Option Selling Strategy
+2025-06-27 03:39:52,872 - Waiting 6.1 minutes until trading starts at 2025-06-27 09:16:00+05:30
+2025-06-27 03:46:07,631 - Spot Price: 25607.75, Supertrend: Green, Above EMA
+2025-06-27 03:46:07,631 - Exit signal detected: Exit Before Expiry
+2025-06-27 03:46:07,919 - PAPER TRADE: Exiting position for NSE:NIFTY25JUN24800PE @ 0.05
+2025-06-27 03:46:08,635 - PAPER TRADE: Exiting position for NSE:NIFTY25JUN24450PE @ 0.05
+2025-06-27 03:46:08,641 - Exit: Buy Back Put NSE:NIFTY25JUN24800PE @ 0.05, Sell Put NSE:NIFTY25JUN24450PE @ 0.05
+2025-06-27 04:46:09,805 - Spot Price: 25576.1, Supertrend: Green, Above EMA
+2025-06-27 04:46:09,805 - Buy signal detected
+2025-06-27 04:46:11,768 - Selected put to sell: NSE:NIFTY2570325450PE with delta ~-0.40755234142822594
+2025-06-27 04:46:11,769 - Selected put to buy: NSE:NIFTY2570325150PE with delta ~-0.2539941269247206
+2025-06-27 04:46:11,769 - PAPER TRADE: BUY 75 NSE:NIFTY2570325150PE @ MARKET
+2025-06-27 04:46:11,769 - PAPER TRADE: SELL 75 NSE:NIFTY2570325450PE @ MARKET
+2025-06-27 04:46:11,775 - Entry: Sell Put NSE:NIFTY2570325450PE @ 95.4, Buy Put NSE:NIFTY2570325150PE @ 35.65
+2025-06-27 05:46:12,972 - Spot Price: 25607.55, Supertrend: Green, Above EMA
+2025-06-27 06:46:14,612 - Spot Price: 25615.4, Supertrend: Green, Above EMA
+2025-06-27 07:46:15,781 - Spot Price: 25615.8, Supertrend: Green, Above EMA
+2025-06-27 08:46:17,754 - Spot Price: 25629.25, Supertrend: Green, Above EMA
+2025-06-27 09:46:19,308 - Spot Price: 25640.5, Supertrend: Green, Above EMA
+2025-06-27 10:46:19,418 - Trading session ended. Positions maintained for next day.

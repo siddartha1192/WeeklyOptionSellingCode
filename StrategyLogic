@@ -1,0 +1,25 @@
+## Strategy Logic
+
+*Indicators Used:*
+- Supertrend (Period: 10, Multiplier: 3.5) 
+- EMA (Period: 20)
+
+*Entry Conditions:*
+- *Long Position (Put Spread)*: Supertrend turns GREEN + Price above EMA
+  - Sell Put (Delta ~-0.4) + Buy Put (Delta ~-0.25)
+- *Short Position (Call Spread)*: Supertrend turns RED + Price below EMA  
+  - Sell Call (Delta ~0.4) + Buy Call (Delta ~0.25)
+
+*Exit Conditions:*
+- Long position exits when Supertrend turns RED
+- Short position exits when Supertrend turns GREEN
+- Force exit 12 minutes before expiry
+
+*Expiry Selection:*
+- Monday-Thursday: Use next week expiry
+- Friday: Use current week expiry
+
+*Risk Management:*
+- Uses spread strategies (limited risk)
+- Delta-based option selection for consistent exposure
+- Paper trading mode available for testing
