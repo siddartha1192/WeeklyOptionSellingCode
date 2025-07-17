@@ -414,7 +414,7 @@ def select_expiry_based_on_day(expiry_dates, current_date):
         return expiry_dates[0]  # Current week expiry
 
 def check_exit_before_expiry(current_time, expiry_date):
-    """Check if we need to exit positions before expiry (12 min before)"""
+    """Check if we need to exit positions before expiry (16 min before)"""
     try:
         # Handle different date formats
         if isinstance(expiry_date, dict) and 'date' in expiry_date:
@@ -443,8 +443,8 @@ def check_exit_before_expiry(current_time, expiry_date):
         # Set the expiry time to 15:30 IST
         expiry_dt = expiry_dt.set(hour=15, minute=30)
         
-        # Get time 12 minutes before expiry
-        exit_time = expiry_dt.subtract(minutes=12)
+        # Get time 16 minutes before expiry
+        exit_time = expiry_dt.subtract(minutes=16)
         
         return current_time >= exit_time
 
@@ -789,10 +789,17 @@ def main():
     # Get current time and define trading session times
     current_time = dt.now(time_zone)
     start_time = dt.datetime(current_time.year, current_time.month, current_time.day, start_hour, start_min, tz=time_zone)
-    end_time = dt.datetime(current_time.year, current_time.month, current_time.day,end_hour, end_min, tz=time_zone)
+    end_time = dt.datetime(current_time.year, current_time.month, current_time.day, end_hour, end_min, tz=time_zone)
     
     print(f"Start time: {start_time}")
     print(f"End time: {end_time}")
+    
+    # If current time is before start time, wait until start time
+    if current_time < start_time:
+        wait_seconds = (start_time - current_time).total_seconds()
+        print(f"Waiting {wait_seconds/60:.1f} minutes until trading starts at {start_time}")
+        logging.info(f"Waiting {wait_seconds/60:.1f} minutes until trading starts at {start_time}")
+        time.sleep((wait_seconds+ 5))
     
     # Main trading loop
     while True:
